@@ -35,7 +35,15 @@ def test_init_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_modes_subset_filters_allowed_tools() -> None:
     spec = EjentumToolSpec(api_key="k", modes=["reasoning", "code"])
-    assert spec.allowed_tools == ["harness_reasoning", "harness_code"]
+    assert spec.allowed_tools == ["reasoning", "code"]
+
+
+def test_modes_subset_accepts_adaptive_values() -> None:
+    spec = EjentumToolSpec(
+        api_key="k",
+        modes=["adaptive-reasoning", "adaptive-memory"],
+    )
+    assert spec.allowed_tools == ["adaptive-reasoning", "adaptive-memory"]
 
 
 def test_modes_unknown_value_raises() -> None:
@@ -53,10 +61,14 @@ def test_custom_api_url_and_timeout() -> None:
     assert spec.client.timeout == 10
 
 
-def test_supported_modes_constant_matches_four_harnesses() -> None:
+def test_supported_modes_constant_matches_eight_harnesses() -> None:
     assert set(SUPPORTED_MODES) == {
         "reasoning",
         "code",
-        "anti_deception",
+        "anti-deception",
         "memory",
+        "adaptive-reasoning",
+        "adaptive-code",
+        "adaptive-anti-deception",
+        "adaptive-memory",
     }

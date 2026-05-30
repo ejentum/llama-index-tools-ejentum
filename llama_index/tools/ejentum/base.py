@@ -7,7 +7,20 @@ from llama_index.tools.mcp import BasicMCPClient, McpToolSpec
 
 
 DEFAULT_API_URL = "https://api.ejentum.com/mcp"
-SUPPORTED_MODES = ("reasoning", "code", "anti_deception", "memory")
+
+# Eight canonical tools exposed by the hosted Ejentum MCP server. Mode
+# strings use hyphens; this list IS the set of tool names registered on
+# the remote MCP endpoint at api.ejentum.com/mcp.
+SUPPORTED_MODES = (
+    "reasoning",
+    "code",
+    "anti-deception",
+    "memory",
+    "adaptive-reasoning",
+    "adaptive-code",
+    "adaptive-anti-deception",
+    "adaptive-memory",
+)
 
 
 class EjentumToolSpec(McpToolSpec):
@@ -15,20 +28,32 @@ class EjentumToolSpec(McpToolSpec):
     Ejentum Reasoning Harness as a LlamaIndex tool spec.
 
     Wraps the hosted Ejentum MCP server (``https://api.ejentum.com/mcp``) and
-    exposes its four cognitive-harness tools as LlamaIndex ``FunctionTool``
+    exposes its eight cognitive-harness tools as LlamaIndex ``FunctionTool``
     objects an agent can route to:
 
-    - ``harness_reasoning`` for analytical, diagnostic, planning, and
-      multi-step decision tasks.
-    - ``harness_code`` for code generation, refactoring, and architecture
-      decisions.
-    - ``harness_anti_deception`` for validation requests, ethical reasoning,
-      and adversarial framings.
-    - ``harness_memory`` for perception sharpening across multi-turn context.
+    Four dynamic tools (all tiers):
 
-    Each call returns a structured scaffold (named failure pattern, executable
-    procedure, suppression vectors, and falsification test) that the calling
-    agent absorbs before generating its next response.
+    - ``reasoning`` for analytical, diagnostic, planning, and multi-step
+      decision tasks.
+    - ``code`` for code generation, refactoring, and architecture decisions.
+    - ``anti-deception`` for validation requests, ethical reasoning, and
+      adversarial framings.
+    - ``memory`` for perception sharpening across multi-turn context.
+
+    Four adaptive tools (Go or Super tier required). Same triggers as the
+    matching dynamic tool, but the returned cognitive operation is
+    rewritten by an adapter LLM to fit the caller's specific task before
+    delivery. Adds ~2-3s of latency vs ~1s for dynamic tools.
+
+    - ``adaptive-reasoning``
+    - ``adaptive-code``
+    - ``adaptive-anti-deception``
+    - ``adaptive-memory``
+
+    Each call returns a structured injection (named failure pattern,
+    executable procedure, suppression vectors, falsification test, plus a
+    reasoning topology graph DAG) that the calling agent absorbs before
+    generating its next response.
 
     This class is a thin subclass of
     :class:`llama_index.tools.mcp.McpToolSpec` that pre-configures the hosted
@@ -39,9 +64,9 @@ class EjentumToolSpec(McpToolSpec):
         api_key: Ejentum API key. Falls back to the ``EJENTUM_API_KEY``
             environment variable. Free and paid tiers at
             https://ejentum.com/auth/register.
-        modes: Optional subset of harness modes to expose. Values are short
-            names without the ``harness_`` prefix, e.g.
-            ``["reasoning", "code"]``. Defaults to all four modes.
+        modes: Optional subset of harness modes to expose. Values are the
+            canonical mode strings, e.g. ``["reasoning", "code"]`` or
+            ``["adaptive-reasoning"]``. Defaults to all eight modes.
         api_url: Override the hosted MCP endpoint. Defaults to
             ``https://api.ejentum.com/mcp``.
         timeout: HTTP timeout in seconds. Defaults to 30.
@@ -77,7 +102,8 @@ class EjentumToolSpec(McpToolSpec):
                     f"Unknown mode(s): {unknown}. "
                     f"Supported modes: {list(SUPPORTED_MODES)}."
                 )
-            allowed_tools = [f"harness_{m}" for m in modes]
+            # Tool name on the remote MCP server equals the mode string.
+            allowed_tools = list(modes)
 
         client = BasicMCPClient(
             api_url,

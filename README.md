@@ -1,15 +1,14 @@
 # llama-index-tools-ejentum
 
-A [LlamaIndex](https://www.llamaindex.ai) tool spec that wraps the hosted [Ejentum](https://ejentum.com) MCP server and exposes its four cognitive-harness tools (`harness_reasoning`, `harness_code`, `harness_anti_deception`, `harness_memory`) as LlamaIndex `FunctionTool` objects. The agent calls one before generating; each call returns a structured scaffold the agent absorbs to harden its next response against a named failure mode.
+[LlamaIndex](https://www.llamaindex.ai) tool spec that subclasses `McpToolSpec` and points at the hosted Ejentum MCP server. Exposes the eight cognitive-harness tools as LlamaIndex `FunctionTool` objects ready for any LlamaIndex agent or query engine.
 
-Each operation in the Ejentum library (679 of them, organized across four harnesses) is engineered in **two layers**:
+Use the harness before the agent generates on complex, multi-step, or multi-constraint tasks where the model's default reasoning template would miss a constraint, take a shortcut, or drift across turns. Each call returns a *cognitive operation*: a structured procedure (numbered steps with a failure pattern to refuse and a falsification test) paired with an executable reasoning topology (a DAG of those steps with decision gates, parallel branches, bounded loops, and meta-cognitive exit nodes). The agent reads both layers before producing its response.
 
-- a **natural-language procedure** the model can read, naming the steps to take and the failure pattern to refuse, and
-- an **executable reasoning topology**: a graph-shaped plan over those steps. The plan names explicit decision points where the model branches, parallel branches that run and rejoin, bounded loops that run until convergence, named meta-cognitive moments where the model is asked to stop, look at its own working, and re-enter at a specific step, plus escape paths for when the prescribed plan stops fitting the task at hand.
+Four dynamic tools (`reasoning`, `code`, `anti-deception`, `memory`) are available on all tiers including the 30-day free trial. Four adaptive tools (`adaptive-reasoning`, `adaptive-code`, `adaptive-anti-deception`, `adaptive-memory`) additionally run an adapter LLM that rewrites the matched operation with task-specific identifiers; they require the Go or Super tier.
 
-The natural-language layer tells the model *what* to do. The topology layer pins down *how* those steps connect: where to decide, where to loop, where to stop and look at itself. Together they act as a persistent attention anchor that survives long context windows and multi-turn execution chains, which is precisely where a model's own reasoning template typically decays.
+Tool names exposed to the LLM are whatever the upstream MCP server advertises (canonical hyphenated strings: `reasoning`, `code`, `anti-deception`, `memory`, `adaptive-reasoning`, `adaptive-code`, `adaptive-anti-deception`, `adaptive-memory`). This shim does not rename them.
 
-## Installation
+## Install
 
 ```bash
 pip install llama-index-tools-ejentum
@@ -17,11 +16,11 @@ pip install llama-index-tools-ejentum
 
 ## Configuration
 
-Get an Ejentum API key at <https://ejentum.com/pricing> (free and paid tiers) and set it in your environment:
-
 ```bash
-export EJENTUM_API_KEY="zpka_..."
+export EJENTUM_API_KEY="ej_..."
 ```
+
+Or pass `api_key=` to `EjentumToolSpec(...)`. Get a key at [ejentum.com/pricing](https://ejentum.com/pricing).
 
 ## Usage
 
@@ -30,19 +29,18 @@ export EJENTUM_API_KEY="zpka_..."
 ```python
 from llama_index.tools.ejentum import EjentumToolSpec
 
-spec = EjentumToolSpec()  # reads EJENTUM_API_KEY from env
+spec = EjentumToolSpec()
 tools = spec.to_tool_list()
 ```
 
 ### Subset of modes
 
 ```python
-# Only expose reasoning and code harnesses
-spec = EjentumToolSpec(modes=["reasoning", "code"])
+spec = EjentumToolSpec(modes=["reasoning", "code", "adaptive-reasoning", "adaptive-code"])
 tools = spec.to_tool_list()
 ```
 
-Valid mode names: `reasoning`, `code`, `anti_deception`, `memory`.
+Valid mode names (use canonical hyphenated form): `reasoning`, `code`, `anti-deception`, `memory`, `adaptive-reasoning`, `adaptive-code`, `adaptive-anti-deception`, `adaptive-memory`.
 
 ### With a ReActAgent
 
@@ -59,54 +57,27 @@ response = await agent.achat(
 )
 ```
 
-The agent routes to `harness_reasoning` based on the tool description. The returned scaffold is fed back into the agent's context for the next generation step.
+## Tool inventory
 
-## The four harnesses
+### Dynamic (all tiers)
 
-| Tool | Best for | Library size |
-|---|---|---|
-| `harness_reasoning` | Analytical, diagnostic, planning, multi-step tasks spanning abstraction, time, causality, simulation, spatial, and metacognition | 311 operations |
-| `harness_code` | Code generation, refactoring, review, and debugging across the software-engineering layer | 128 operations |
-| `harness_anti_deception` | Prompts that pressure the agent to validate, certify, or soften an honest assessment, spanning sycophancy, hallucination, deception, adversarial framing, judgment, and executive control | 139 operations |
-| `harness_memory` | Sharpening an observation already formed about cross-turn drift across the perception layer. Filter-oriented, not write-oriented. Format `query` as `"I noticed X. This might mean Y. Sharpen: Z."` | 101 operations |
+| Tool | Library size |
+|---|---:|
+| `reasoning` | 311 |
+| `code` | 128 |
+| `anti-deception` | 139 |
+| `memory` | 101 |
 
-## What an injection looks like
+### Adaptive (Go or Super tier)
 
-A real `reasoning` mode response on the query `investigate why our nightly ETL job has started failing intermittently over the past two weeks; nothing in the code or schema has changed`:
+| Tool |
+|---|
+| `adaptive-reasoning` |
+| `adaptive-code` |
+| `adaptive-anti-deception` |
+| `adaptive-memory` |
 
-```
-[NEGATIVE GATE]
-The server's response time was accepted as average, despite a suspicious
-rhythm break in its timing pattern.
-
-[PROCEDURE]
-Step 1: Establish baseline timing profiles by extracting historical
-durations and intervals for each event type. Step 2: Compare each observed
-timing against its baseline and compute deviation magnitude. Step 3:
-Classify anomalies as too fast, too slow, too early, or too late, and rank
-by severity. ... Step 5: If deviation exceeds two standard deviations,
-probe root cause by tracing upstream dependencies. ...
-
-[REASONING TOPOLOGY]
-S1:durations -> FIXED_POINT[baselines] -> N{dismiss_timing_deviations_
-without_investigation} -> for_each: S2:compare -> S3:deviation ->
-G1{>2sigma?} --yes-> S4:classify -> S5:probe_cause -> FLAG -> continue --no->
-S6:validate -> continue -> all_checked -> OUT:anomaly_report
-
-[TARGET PATTERN]
-Establish timing baselines by extracting historical response intervals.
-Compare current server response time to this baseline. ...
-
-[FALSIFICATION TEST]
-If no event timing is flagged as suspiciously fast or slow relative to
-baseline, temporal anomaly detection was not active.
-
-Amplify: timing baseline comparison; anomaly classification; security
-context elevation
-Suppress: average timing acceptance; outlier normalization
-```
-
-The agent reads both the natural-language `[PROCEDURE]` and the graph-logic `[REASONING TOPOLOGY]` before generating its user-facing answer. The bracketed labels are instructions to the agent, not content to display; the user sees a naturally-phrased answer shaped by the injection.
+Each tool takes a single `query: str` argument. Returns the injection as a string.
 
 ## API reference
 
@@ -121,32 +92,32 @@ EjentumToolSpec(
 
 | Field | Default | Description |
 |---|---|---|
-| `api_key` | `None` | If omitted, read from `EJENTUM_API_KEY`. Raises `ValueError` at construction time if neither is set. |
-| `modes` | `None` | Optional subset of harness modes to expose. Names without the `harness_` prefix, e.g. `["reasoning", "code"]`. Defaults to all four. |
-| `api_url` | `https://api.ejentum.com/mcp` | Override only if you self-host the Ejentum MCP gateway. |
+| `api_key` | `None` | If unset, read from `EJENTUM_API_KEY`. Raises `ValueError` at construction if neither is set. |
+| `modes` | `None` | Optional subset of harness modes to expose. Defaults to all eight. |
+| `api_url` | `https://api.ejentum.com/mcp` | Override for self-hosted MCP gateway. |
 | `timeout` | `30` | HTTP timeout in seconds for the underlying MCP client. |
 
-This class is a thin subclass of `llama_index.tools.mcp.McpToolSpec`, pre-configured with the hosted Ejentum endpoint and Bearer authentication. For raw MCP usage against arbitrary servers, use `McpToolSpec` directly.
+The class is a thin subclass of `llama_index.tools.mcp.McpToolSpec`, pre-configured with the hosted Ejentum endpoint and Bearer authentication.
 
-## About the underlying MCP server
+## Wire contract
 
-The same MCP server is available across other surfaces: stdio via `npx -y ejentum-mcp`, hosted at `https://api.ejentum.com/mcp` (Streamable HTTP), and listed on the [Official MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.ejentum/ejentum-mcp`.
+This shim talks to the **MCP** endpoint (`/mcp`), not the direct-REST endpoint (`/harness/`). For the direct-REST contract used by every other Ejentum shim, see the [ejentum-mcp README](https://github.com/ejentum/ejentum-mcp#wire-contract); for the MCP-over-streamable-HTTP contract, see the [MCP specification](https://modelcontextprotocol.io).
+
+Field structure of an injection and a canonical dynamic-vs-adaptive comparison on the same query are documented in the [ejentum-mcp README](https://github.com/ejentum/ejentum-mcp#canonical-example-dynamic-vs-adaptive-on-the-same-query).
+
+## The underlying MCP server
+
+The same MCP server is available on three additional surfaces:
+
+- Stdio via `npx -y ejentum-mcp`
+- Hosted Streamable HTTP at `https://api.ejentum.com/mcp`
+- Listed on the [Official MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.ejentum/ejentum-mcp`
 
 ## Compatibility
 
 - Python 3.10+
 - `llama-index-core>=0.13.0,<0.15`
 - `llama-index-tools-mcp>=0.4.1,<0.5`
-
-## Resources
-
-- Ejentum homepage: <https://ejentum.com>
-- Pricing: <https://ejentum.com/pricing>
-- API reference: <https://ejentum.com/docs/api_reference>
-- "Why LLM Agents Fail" essay: <https://ejentum.com/blog/why-llm-agents-fail>
-- "Under Pressure" research paper: <https://doi.org/10.5281/zenodo.19392715>
-- MCP source repository: <https://github.com/ejentum/ejentum-mcp>
-- LlamaIndex documentation: <https://docs.llamaindex.ai>
 
 ## License
 
